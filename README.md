@@ -18,7 +18,7 @@ and the traditional Future/Promise.
 
 # Quick Experience
 
-We can try async_simple online in [compiler-explorer](compiler-explorer.com): https://compiler-explorer.com/z/Tdaesqsqj . Note that `Uthread` cannot be use in compiler-explorer since it requires installation.
+We can try async_simple online in [compiler-explorer](https://compiler-explorer.com/z/Tdaesqsqj). Note that `Uthread` cannot be use in compiler-explorer since it requires installation.
 
 # Get Started
 
