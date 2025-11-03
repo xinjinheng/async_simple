@@ -34,6 +34,7 @@
 #include "async_simple/coro/DetachedCoroutine.h"
 #include "async_simple/coro/LazyLocalBase.h"
 #include "async_simple/coro/PromiseAllocator.h"
+#include "async_simple/coro/MemoryPool.h"
 #include "async_simple/coro/ViaCoroutine.h"
 #include "async_simple/experimental/coroutine.h"
 
@@ -90,7 +91,7 @@ struct CollectAnyVariadicPairAwaiter;
 
 namespace detail {
 
-class LazyPromiseBase : public PromiseAllocator<void, true> {
+class LazyPromiseBase : public PromiseAllocator<PoolAllocator<void>, true> {
 public:
     // Resume the caller waiting to the current coroutine. Note that we need
     // destroy the frame for the current coroutine explicitly. Since after
