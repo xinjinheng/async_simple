@@ -28,6 +28,7 @@
 #include <utility>
 #include <variant>
 #include "async_simple/Common.h"
+#include "async_simple/DebugUtils.h"
 #include "async_simple/Executor.h"
 #include "async_simple/Signal.h"
 #include "async_simple/Try.h"
@@ -347,6 +348,11 @@ public:
                                    PromiseType>,
                 "'co_await Lazy' is only allowed to be called by Lazy or "
                 "DetachedCoroutine");
+            
+            // Null pointer checks
+            checkPointerNotNull(&this->_handle, "LazyAwaiterBase::_handle is null");
+            checkPointerNotNull(&continuation, "Lazy await_suspend: continuation is null");
+            
             // current coro started, caller becomes my continuation
             this->_handle.promise()._continuation = continuation;
             if constexpr (std::is_base_of<LazyPromiseBase,

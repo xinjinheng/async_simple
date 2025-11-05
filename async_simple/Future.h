@@ -286,8 +286,7 @@ private:
         if (!_sharedState) {
             if constexpr (R::ReturnsFuture::value) {
                 try {
-                    auto newFuture =
-                        std::forward<F>(func)(std::move(_localState.getTry()));
+                    auto newFuture = std::forward<F>(func)(std::move(_localState.getTry()));
                     if (!newFuture.getExecutor()) {
                         newFuture.setExecutor(_localState.getExecutor());
                     }
@@ -309,23 +308,28 @@ private:
         _sharedState->setContinuation(
             [p = std::move(promise),
              f = std::forward<F>(func)](Try<T>&& t) mutable {
-                if (!R::isTry && t.hasError()) {
-                    p.setException(t.getException());
-                } else {
-                    if constexpr (R::ReturnsFuture::value) {
-                        try {
+                try {
+                    if (!R::isTry && t.hasError()) {
+                        p.setException(t.getException());
+                    } else {
+                        if constexpr (R::ReturnsFuture::value) {
                             auto f2 = f(std::move(t));
                             f2.setContinuation(
                                 [pm = std::move(p)](Try<T2>&& t2) mutable {
-                                    pm.setValue(std::move(t2));
+                                    try {
+                                        pm.setValue(std::move(t2));
+                                    } catch (...) {
+                                        // Ensure promise is not left in broken state
+                                        pm.setException(std::current_exception());
+                                    }
                                 });
-                        } catch (...) {
-                            p.setException(std::current_exception());
+                        } else {
+                            p.setValue(makeTryCall(std::forward<F>(f),
+                                                   std::move(t)));  // Try<Unit>
                         }
-                    } else {
-                        p.setValue(makeTryCall(std::forward<F>(f),
-                                               std::move(t)));  // Try<Unit>
                     }
+                } catch (...) {
+                    p.setException(std::current_exception());
                 }
             });
         return newFuture;
