@@ -17,6 +17,7 @@
 #include <thread>
 
 #include "connection.hpp"
+#include "async_simple/CoroExceptionMonitor.h"
 
 using asio::ip::tcp;
 
@@ -29,20 +30,40 @@ public:
         tcp::acceptor a(io_context_, tcp::endpoint(tcp::v4(), port_));
         for (;;) {
             tcp::socket socket(io_context_);
-            auto error = co_await async_accept(a, socket);
-            if (error) {
-                std::cout << "Accept failed, error: " << error.message()
+            try {
+                auto error = co_await async_accept(a, socket, std::chrono::milliseconds(60000));
+                if (error) {
+                    std::cout << "Accept failed, error: " << error.message()
+                              << '\n';
+                    continue;
+                }
+                std::cout << "New client comming.\n";
+                start_one(std::move(socket)).via(&executor_).detach();
+            } catch (const NetworkException& e) {
+                std::cout << "Accept failed, exception: " << e.what()
+                          << '\n';
+                continue;
+            } catch (const std::exception& e) {
+                std::cout << "Accept failed, unknown exception: " << e.what()
                           << '\n';
                 continue;
             }
-            std::cout << "New client comming.\n";
-            start_one(std::move(socket)).via(&executor_).detach();
         }
     }
 
     async_simple::coro::Lazy<void> start_one(asio::ip::tcp::socket socket) {
-        connection conn(std::move(socket), "./");
-        co_await conn.start();
+        try {
+            connection conn(std::move(socket), "./");
+            co_await conn.start();
+        } catch (const NetworkException& e) {
+            std::cout << "Connection failed, exception: " << e.what()
+                      << '\n';
+        } catch (const std::exception& e) {
+            std::cout << "Connection failed, unknown exception: " << e.what()
+                      << '\n';
+        } catch (...) {
+            std::cout << "Connection failed, unknown exception\n";
+        }
     }
 
 private:

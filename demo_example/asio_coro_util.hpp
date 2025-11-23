@@ -21,6 +21,8 @@
 #include "async_simple/coro/Lazy.h"
 #include "async_simple/coro/SyncAwait.h"
 #include "async_simple/executors/SimpleExecutor.h"
+#include "async_simple/NetworkException.h"
+#include "async_simple/NetworkOperationWrapper.h"
 
 #include <chrono>
 #include <concepts>
@@ -199,94 +201,93 @@ private:
 };
 
 inline async_simple::coro::Lazy<std::error_code> async_accept(
-    asio::ip::tcp::acceptor &acceptor, asio::ip::tcp::socket &socket) noexcept {
-    co_return co_await AsioCallbackAwaiter<std::error_code>{
-        [&](std::coroutine_handle<> handle, auto set_resume_value) {
-            acceptor.async_accept(
-                socket, [handle, set_resume_value = std::move(
-                                     set_resume_value)](auto ec) mutable {
-                    set_resume_value(std::move(ec));
-                    handle.resume();
-                });
-        }};
+    asio::ip::tcp::acceptor &acceptor, asio::ip::tcp::socket &socket,
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(30000)) noexcept {
+    auto wrapper = NetworkOperationWrapper<std::error_code>(timeout);
+    co_return co_await wrapper.execute([&](auto &op) {
+        acceptor.async_accept(
+            socket, [op = std::move(op)](auto ec) mutable {
+                op.complete(ec);
+            });
+    });
 }
 
 template <typename Socket, typename AsioBuffer>
 inline async_simple::coro::Lazy<std::pair<std::error_code, size_t>>
-async_read_some(Socket &socket, AsioBuffer &&buffer) noexcept {
-    co_return co_await AsioCallbackAwaiter<std::pair<std::error_code, size_t>>{
-        [&](std::coroutine_handle<> handle, auto set_resume_value) mutable {
-            socket.async_read_some(
-                std::move(buffer),
-                [handle, set_resume_value = std::move(set_resume_value)](
-                    auto ec, auto size) mutable {
-                    set_resume_value(std::make_pair(std::move(ec), size));
-                    handle.resume();
-                });
-        }};
+async_read_some(Socket &socket, AsioBuffer &&buffer,
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(30000)) noexcept {
+    auto wrapper = NetworkOperationWrapper<std::pair<std::error_code, size_t>>(timeout);
+    co_return co_await wrapper.execute([&](auto &op) {
+        socket.async_read_some(
+            std::move(buffer),
+            [op = std::move(op)](auto ec, auto size) mutable {
+                op.complete(std::make_pair(ec, size));
+            });
+    });
 }
 
 template <typename Socket, typename AsioBuffer>
 inline async_simple::coro::Lazy<std::pair<std::error_code, size_t>> async_read(
-    Socket &socket, AsioBuffer &buffer) noexcept {
-    co_return co_await AsioCallbackAwaiter<std::pair<std::error_code, size_t>>{
-        [&](std::coroutine_handle<> handle, auto set_resume_value) mutable {
-            asio::async_read(
-                socket, buffer,
-                [handle, set_resume_value = std::move(set_resume_value)](
-                    auto ec, auto size) mutable {
-                    set_resume_value(std::make_pair(std::move(ec), size));
-                    handle.resume();
-                });
-        }};
+    Socket &socket, AsioBuffer &buffer,
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(30000)) noexcept {
+    auto wrapper = NetworkOperationWrapper<std::pair<std::error_code, size_t>>(timeout);
+    co_return co_await wrapper.execute([&](auto &op) {
+        asio::async_read(
+            socket, buffer,
+            [op = std::move(op)](auto ec, auto size) mutable {
+                op.complete(std::make_pair(ec, size));
+            });
+    });
 }
 
 template <typename Socket, typename AsioBuffer>
 inline async_simple::coro::Lazy<std::pair<std::error_code, size_t>>
 async_read_until(Socket &socket, AsioBuffer &buffer,
-                 asio::string_view delim) noexcept {
-    co_return co_await AsioCallbackAwaiter<std::pair<std::error_code, size_t>>{
-        [&](std::coroutine_handle<> handle, auto set_resume_value) mutable {
-            asio::async_read_until(
-                socket, buffer, delim,
-                [handle, set_resume_value = std::move(set_resume_value)](
-                    auto ec, auto size) mutable {
-                    set_resume_value(std::make_pair(std::move(ec), size));
-                    handle.resume();
-                });
-        }};
+                 asio::string_view delim,
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(30000)) noexcept {
+    auto wrapper = NetworkOperationWrapper<std::pair<std::error_code, size_t>>(timeout);
+    co_return co_await wrapper.execute([&](auto &op) {
+        asio::async_read_until(
+            socket, buffer, delim,
+            [op = std::move(op)](auto ec, auto size) mutable {
+                op.complete(std::make_pair(ec, size));
+            });
+    });
 }
 
 template <typename Socket, typename AsioBuffer>
 inline async_simple::coro::Lazy<std::pair<std::error_code, size_t>> async_write(
-    Socket &socket, AsioBuffer &&buffer) noexcept {
-    co_return co_await AsioCallbackAwaiter<std::pair<std::error_code, size_t>>{
-        [&](std::coroutine_handle<> handle, auto set_resume_value) mutable {
-            asio::async_write(
-                socket, std::move(buffer),
-                [handle, set_resume_value = std::move(set_resume_value)](
-                    auto ec, auto size) mutable {
-                    set_resume_value(std::make_pair(std::move(ec), size));
-                    handle.resume();
-                });
-        }};
+    Socket &socket, AsioBuffer &&buffer,
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(30000)) noexcept {
+    auto wrapper = NetworkOperationWrapper<std::pair<std::error_code, size_t>>(timeout);
+    co_return co_await wrapper.execute([&](auto &op) {
+        asio::async_write(
+            socket, std::move(buffer),
+            [op = std::move(op)](auto ec, auto size) mutable {
+                op.complete(std::make_pair(ec, size));
+            });
+    });
 }
 
 inline async_simple::coro::Lazy<std::error_code> async_connect(
     asio::io_context &io_context, asio::ip::tcp::socket &socket,
-    const std::string &host, const std::string &port) noexcept {
-    co_return co_await AsioCallbackAwaiter<std::error_code>{
-        [&](std::coroutine_handle<> handle, auto set_resume_value) mutable {
-            asio::ip::tcp::resolver resolver(io_context);
-            auto endpoints = resolver.resolve(host, port);
+    const std::string &host, const std::string &port,
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(30000)) noexcept {
+    auto wrapper = NetworkOperationWrapper<std::error_code>(timeout);
+    co_return co_await wrapper.execute([&](auto &op) {
+        asio::ip::tcp::resolver resolver(io_context);
+        resolver.async_resolve(host, port, [&, op = std::move(op)](auto ec, auto endpoints) mutable {
+            if (ec) {
+                op.complete(ec);
+                return;
+            }
             asio::async_connect(
                 socket, endpoints,
-                [handle, set_resume_value = std::move(set_resume_value)](
-                    auto ec, auto size) mutable {
-                    set_resume_value(std::move(ec));
-                    handle.resume();
+                [op = std::move(op)](auto ec, auto) mutable {
+                    op.complete(ec);
                 });
-        }};
+        });
+    });
 }
 
 #endif

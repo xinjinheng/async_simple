@@ -97,6 +97,13 @@ public:
     // should guarantee that the func would be executed.
     virtual bool schedule(Func func) = 0;
 
+    // Validate coroutine context before scheduling
+    // Returns true if context is valid, false otherwise
+    virtual bool validateCoroContext(std::coroutine_handle<> coroHandle) const {
+        // Default implementation always returns true
+        return true;
+    }
+
     // 4-bits priority, less level is more important. Default
     // value of async-simple schedule is DEFAULT. For scheduling level >=
     // YIELD, if executor always execute the work immediately if other

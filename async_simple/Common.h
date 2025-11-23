@@ -18,6 +18,8 @@
 
 #ifndef ASYNC_SIMPLE_USE_MODULES
 #include <stdexcept>
+#include <functional>
+#include <string>
 #include "async_simple/CommonMacros.h"
 
 #endif  // ASYNC_SIMPLE_USE_MODULES
@@ -34,6 +36,40 @@ inline void logicAssert(bool x, const char* errorMsg) {
         AS_LIKELY { return; }
     throw std::logic_error(errorMsg);
 }
+
+// Resource access error context
+struct ResourceAccessErrorContext {
+    uint64_t coroId;          // Coroutine ID
+    std::string resourceType; // Type of the resource being accessed
+    std::string accessLocation; // Location where the resource was accessed
+    std::string errorMessage; // Detailed error message
+};
+
+// Resource access error handler type
+typedef std::function<void(const ResourceAccessErrorContext&)> ResourceAccessErrorHandler;
+
+// Set the global resource access error handler
+ASYNC_SIMPLE_API void setGlobalResourceAccessErrorHandler(ResourceAccessErrorHandler handler);
+
+// Get the global resource access error handler
+ASYNC_SIMPLE_API ResourceAccessErrorHandler getGlobalResourceAccessErrorHandler();
+
+// Safe access macro for production environment
+#define SafeAccess(resource, resourceType, accessLocation, errorMsg) \
+    do { \
+        if (!(resource)) { \
+            async_simple::ResourceAccessErrorContext ctx; \
+            ctx.coroId = async_simple::coro::getCurrentCoroutineId(); \
+            ctx.resourceType = (resourceType); \
+            ctx.accessLocation = (accessLocation); \
+            ctx.errorMessage = (errorMsg); \
+            auto handler = async_simple::getGlobalResourceAccessErrorHandler(); \
+            if (handler) { \
+                handler(ctx); \
+            } \
+            return false; \
+        } \
+    } while (0)
 
 }  // namespace async_simple
 

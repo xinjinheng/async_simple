@@ -25,6 +25,7 @@
 #include "async_simple/FutureState.h"
 #include "async_simple/LocalState.h"
 #include "async_simple/Traits.h"
+#include "async_simple/CoroExceptionMonitor.h"
 
 #endif  // ASYNC_SIMPLE_USE_MODULES
 
@@ -293,7 +294,8 @@ private:
                     }
                     return newFuture;
                 } catch (...) {
-                    return Future<T2>(Try<T2>(std::current_exception()));
+                    auto ex = std::current_exception();
+                    return Future<T2>(Try<T2>(ex));
                 }
             } else {
                 Future<T2> newFuture(makeTryCall(
@@ -320,7 +322,8 @@ private:
                                     pm.setValue(std::move(t2));
                                 });
                         } catch (...) {
-                            p.setException(std::current_exception());
+                            auto ex = std::current_exception();
+                            p.setException(ex);
                         }
                     } else {
                         p.setValue(makeTryCall(std::forward<F>(f),
