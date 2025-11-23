@@ -19,6 +19,8 @@
 
 #ifndef ASYNC_SIMPLE_USE_MODULES
 #include <cstddef>
+#include <vector>
+#include <functional>
 #include "async_simple/coro/ConditionVariable.h"
 #include "async_simple/coro/Lazy.h"
 #include "async_simple/coro/SpinLock.h"
@@ -37,6 +39,40 @@ namespace async_simple::coro {
 class Latch {
 public:
     explicit Latch(std::size_t count) : count_(count) {}
+    
+    ~Latch() {
+        // Auto-release all registered resources
+        releaseAllResources();
+    }
+    
+    // Register a resource to be automatically released
+    template <typename Resource, typename ReleaseFunc = std::function<void(Resource&&)>>
+    void registerResource(Resource&& resource, ReleaseFunc releaseFunc) {
+        auto lk = mutex_.lock();
+        _resources.emplace_back(
+            [resource = std::forward<Resource>(resource), releaseFunc = std::move(releaseFunc)]() mutable {
+                releaseFunc(std::forward<Resource>(resource));
+            }
+        );
+    }
+    
+    // Register a file descriptor resource
+    void registerFileDescriptor(int fd) {
+        registerResource(fd, [](int fd) {
+            if (fd != -1) {
+                ::close(fd);
+            }
+        });
+    }
+    
+    // Register a socket resource
+    void registerSocket(int sockfd) {
+        registerResource(sockfd, [](int sockfd) {
+            if (sockfd != -1) {
+                ::close(sockfd);
+            }
+        });
+    }
     ~Latch() = default;
     Latch(const Latch&) = delete;
     Latch& operator=(const Latch&) = delete;
@@ -60,22 +96,59 @@ public:
     // blocks until the counter reaches zero
     // If the counter is not 0, the current coroutine will be suspended
     Lazy<void> wait() const noexcept {
-        auto lk = co_await mutex_.coScopedLock();
-        co_await cv_.wait(mutex_, [&] { return count_ == 0; });
+        try {
+            auto lk = co_await mutex_.coScopedLock();
+            co_await cv_.wait(mutex_, [&] { return count_ == 0; });
+            // Release resources when wait completes successfully
+            const_cast<Latch*>(this)->releaseAllResources();
+        }
+        catch (...) {
+            // Release resources when wait is interrupted by exception
+            const_cast<Latch*>(this)->releaseAllResources();
+            throw;
+        }
     }
 
     // decrements the counter and blocks until it reaches zero
     Lazy<void> arrive_and_wait(std::size_t update = 1) noexcept {
-        co_await count_down(update);
-        co_await wait();
+        try {
+            co_await count_down(update);
+            co_await wait();
+            // Release resources when wait completes successfully
+            releaseAllResources();
+        }
+        catch (...) {
+            // Release resources when wait is interrupted by exception
+            releaseAllResources();
+            throw;
+        }
     }
 
+private:
+    // Release all registered resources
+    void releaseAllResources() {
+        auto lk = mutex_.lock();
+        for (auto& releaseFunc : _resources) {
+            try {
+                releaseFunc();
+            }
+            catch (...) {
+                // Ignore exceptions during resource release
+            }
+        }
+        _resources.clear();
+    }
+    
 private:
     using MutexType = SpinLock;
 
     mutable MutexType mutex_;
     mutable ConditionVariable<MutexType> cv_;
     std::size_t count_;
+    
+    // Resources to be automatically released
+    std::vector<std::function<void()>> _resources;
+
 };
 
 }  // namespace async_simple::coro

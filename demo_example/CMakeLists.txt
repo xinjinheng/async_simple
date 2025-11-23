@@ -1,72 +1,68 @@
-if ("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin" AND
-    NOT CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations")
+cmake_minimum_required(VERSION 3.16)
+project(async_simple_demo)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Find asio
+find_path(ASIO_INCLUDE_DIR asio.hpp)
+if(NOT ASIO_INCLUDE_DIR)
+    message(FATAL_ERROR "asio not found")
 endif()
 
-add_executable(CountChar CountChar.cpp)
-target_link_libraries(CountChar async_simple)
+# Include async_simple headers
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/..)
 
-if (${ASYNC_SIMPLE_BUILD_MODULES})
-    add_executable(CountCharUsingModules CountCharUsingModules.cpp)
-    target_link_libraries(CountCharUsingModules async_simple)
-endif()
+# Add executable
+add_executable(test_network_features test_network_features.cpp)
 
-add_executable(ReadFiles ReadFiles.cpp)
-target_link_libraries(ReadFiles async_simple)
+# Link libraries
+target_link_libraries(test_network_features pthread)
 
-if(NOT ASYNC_SIMPLE_DISABLE_AIO AND LIBAIO_INCLUDE_DIR AND LIBAIO_LIBRARIES)
-  target_link_libraries(ReadFiles ${LIBAIO_LIBRARIES})
-endif()
+# Add include directories
+target_include_directories(test_network_features PRIVATE
+    ${ASIO_INCLUDE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
 
-add_custom_command(
-        TARGET ReadFiles POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-                ${CMAKE_CURRENT_SOURCE_DIR}/Input
-                ${CMAKE_CURRENT_BINARY_DIR}/Input)
-
-include_directories(asio)
-
-add_executable(async_echo_server async_echo_server.cpp)
-target_link_libraries(async_echo_server async_simple)
-
-add_executable(async_echo_client async_echo_client.cpp)
-target_link_libraries(async_echo_client async_simple)
-
-add_executable(async_multiple_core_echo_server async_multiple_core_echo_server.cpp)
-target_link_libraries(async_multiple_core_echo_server async_simple)
-
-add_executable(block_echo_server block_echo_server.cpp)
-target_link_libraries(block_echo_server ${CMAKE_THREAD_LIBS_INIT})
-
-add_executable(block_echo_client block_echo_client.cpp)
-target_link_libraries(block_echo_client ${CMAKE_THREAD_LIBS_INIT})
-
+# Add HTTP server executable
 add_executable(http_server http/coroutine_http/http_server.cpp)
-target_link_libraries(http_server async_simple)
+target_link_libraries(http_server pthread)
+target_include_directories(http_server PRIVATE
+    ${ASIO_INCLUDE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
 
-add_executable(multiple_core_http_server http/coroutine_http/multiple_core_http_server.cpp)
-target_link_libraries(multiple_core_http_server async_simple)
-
-add_executable(http_client http/coroutine_http/http_client.cpp)
-target_link_libraries(http_client async_simple)
-
-add_executable(block_http_server http/block_http/block_http_server.cpp)
-target_link_libraries(block_http_server async_simple)
-
-add_executable(pmr_lazy pmr_lazy.cpp)
-target_link_libraries(pmr_lazy async_simple)
-
-SET(ENABLE_SSL OFF)
-
-if (ENABLE_SSL)
-    find_package(OpenSSL REQUIRED)
-    add_definitions(-DENABLE_SSL)
-    message(STATUS "Use SSL")
-endif()
-
+# Add SMTP client executable
 add_executable(smtp_client smtp/smtp_client.cpp)
-if (ENABLE_SSL)
-    target_link_libraries(smtp_client async_simple ${CMAKE_THREAD_LIBS_INIT} OpenSSL::SSL)
+target_link_libraries(smtp_client pthread)
+target_include_directories(smtp_client PRIVATE
+    ${ASIO_INCLUDE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+# Add definitions
+if(WIN32)
+    target_compile_definitions(test_network_features PRIVATE
+        _WIN32_WINNT=0x0601
+        ASIO_STANDALONE
+    )
+    target_compile_definitions(http_server PRIVATE
+        _WIN32_WINNT=0x0601
+        ASIO_STANDALONE
+    )
+    target_compile_definitions(smtp_client PRIVATE
+        _WIN32_WINNT=0x0601
+        ASIO_STANDALONE
+    )
 else()
-    target_link_libraries(smtp_client async_simple ${CMAKE_THREAD_LIBS_INIT})
+    target_compile_definitions(test_network_features PRIVATE
+        ASIO_STANDALONE
+    )
+    target_compile_definitions(http_server PRIVATE
+        ASIO_STANDALONE
+    )
+    target_compile_definitions(smtp_client PRIVATE
+        ASIO_STANDALONE
+    )
 endif()

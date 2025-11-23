@@ -36,6 +36,7 @@
 #include "async_simple/coro/PromiseAllocator.h"
 #include "async_simple/coro/ViaCoroutine.h"
 #include "async_simple/experimental/coroutine.h"
+#include "async_simple/CoroExceptionMonitor.h"
 
 #endif  // ASYNC_SIMPLE_USE_MODULES
 
@@ -44,6 +45,48 @@ namespace async_simple {
 class Executor;
 
 namespace coro {
+
+// Get current coroutine ID
+ASYNC_SIMPLE_API uint64_t getCurrentCoroutineId();
+
+// Set current coroutine ID
+ASYNC_SIMPLE_API void setCurrentCoroutineId(uint64_t coroId);
+
+// Generate a new unique coroutine ID
+ASYNC_SIMPLE_API uint64_t generateCoroutineId();
+
+// Coroutine resource guard
+class CoroutineResourceGuard {
+public:
+    CoroutineResourceGuard() noexcept : _executor(nullptr), _promise(nullptr) {}
+    CoroutineResourceGuard(Executor* executor, void* promise) noexcept 
+        : _executor(executor), _promise(promise) {}
+    
+    // Check if resources are valid
+    bool isValid() const noexcept {
+        return _executor != nullptr && _promise != nullptr;
+    }
+    
+    // Get executor
+    Executor* getExecutor() const noexcept {
+        return _executor;
+    }
+    
+    // Get promise
+    void* getPromise() const noexcept {
+        return _promise;
+    }
+    
+    // Reset resources
+    void reset() noexcept {
+        _executor = nullptr;
+        _promise = nullptr;
+    }
+    
+private:
+    Executor* _executor;
+    void* _promise;
+};
 
 template <typename T>
 class Lazy;
@@ -141,7 +184,9 @@ public:
     };
 
 public:
-    LazyPromiseBase() noexcept : _executor(nullptr), _lazy_local(nullptr) {}
+    LazyPromiseBase() noexcept : _executor(nullptr), _lazy_local(nullptr), _coroId(generateCoroutineId()) {
+        setCurrentCoroutineId(_coroId);
+    }
     // Lazily started, coroutine will not execute until first resume() is called
     std::suspend_always initial_suspend() noexcept { return {}; }
     FinalAwaiter final_suspend() noexcept { return {}; }
@@ -184,6 +229,19 @@ public:
     std::coroutine_handle<> _continuation;
     Executor* _executor;
     LazyLocalBase* _lazy_local;
+    uint64_t _coroId;
+    CoroutineResourceGuard _resourceGuard;
+    
+public:
+    // Get resource guard
+    const CoroutineResourceGuard& getResourceGuard() const noexcept {
+        return _resourceGuard;
+    }
+    
+    // Update resource guard
+    void updateResourceGuard(Executor* executor, void* promise) noexcept {
+        _resourceGuard = CoroutineResourceGuard(executor, promise);
+    }
 };
 
 template <typename T>
@@ -210,6 +268,13 @@ public:
         _value.template emplace<T>(std::forward<V>(value));
     }
     void unhandled_exception() noexcept {
+        try {
+            std::rethrow_exception(std::current_exception());
+        }
+        catch (...) {
+            async_simple::handleCoroutineException(std::current_exception(), "Lazy");
+        }
+    }
         _value.template emplace<std::exception_ptr>(std::current_exception());
     }
 

@@ -26,6 +26,8 @@
 #include <vector>
 
 #include "../asio_coro_util.hpp"
+#include "async_simple/NetworkException.h"
+#include "async_simple/ResourceTracker.h"
 
 #ifdef ENABLE_SSL
 #include "asio/ssl.hpp"
@@ -176,10 +178,10 @@ public:
         std::error_code ec;
         auto endpoint_iterator = resolver_.resolve(qry, ec);
 
-        ec = co_await async_connect(io_context_, socket_, host, server_.port);
+        ec = co_await async_connect(io_context_, socket_, host, server_.port, std::chrono::milliseconds(30000));
         if (ec) {
             std::cout << "Connect error: " << ec.message() << '\n';
-            throw asio::system_error(ec);
+            throw NetworkException("Connect failed: " + ec.message());
         }
 
         std::cout << "connect ok\n";
@@ -192,20 +194,20 @@ public:
         const char *header = asio::buffer_cast<const char *>(request_.data());
         std::cout << header << '\n';
         [[maybe_unused]] auto [write_ec, size] = co_await async_write(
-            get_socket(), asio::buffer(header, request_.size()));
+            get_socket(), asio::buffer(header, request_.size()), std::chrono::milliseconds(30000));
         if (write_ec) {
-            std::cout << "write failed, reason: " << ec.message() << '\n';
-            throw asio::system_error(write_ec);
+            std::cout << "write failed, reason: " << write_ec.message() << '\n';
+            throw NetworkException("Write failed: " + write_ec.message());
         }
 
         while (true) {
             const int max_length = 1024;
             char read_buf[max_length];
             [[maybe_unused]] auto [read_ec, size] = co_await async_read_some(
-                get_socket(), asio::buffer(read_buf, max_length));
+                get_socket(), asio::buffer(read_buf, max_length), std::chrono::milliseconds(30000));
             if (read_ec) {
-                std::cout << "read failed, reason: " << ec.message() << '\n';
-                throw asio::system_error(read_ec);
+                std::cout << "read failed, reason: " << read_ec.message() << '\n';
+                throw NetworkException("Read failed: " + read_ec.message());
             }
 
             std::string_view content(read_buf, size);
