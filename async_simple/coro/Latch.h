@@ -19,6 +19,8 @@
 
 #ifndef ASYNC_SIMPLE_USE_MODULES
 #include <cstddef>
+#include <vector>
+#include <functional>
 #include "async_simple/coro/ConditionVariable.h"
 #include "async_simple/coro/Lazy.h"
 #include "async_simple/coro/SpinLock.h"
@@ -37,9 +39,28 @@ namespace async_simple::coro {
 class Latch {
 public:
     explicit Latch(std::size_t count) : count_(count) {}
-    ~Latch() = default;
+    ~Latch() {
+        // Auto release all registered resources when latch is destroyed
+        releaseAllResources();
+    }
     Latch(const Latch&) = delete;
     Latch& operator=(const Latch&) = delete;
+
+    // Register a resource with a release function
+    template <typename ReleaseFunc>
+    void registerResource(ReleaseFunc&& releaseFunc) {
+        auto lk = mutex_.lock();
+        resources_.emplace_back(std::forward<ReleaseFunc>(releaseFunc));
+    }
+
+    // Register a file descriptor resource
+    void registerFileDescriptor(int fd) {
+        registerResource([fd]() {
+            if (fd != -1) {
+                ::close(fd);
+            }
+        });
+    }
 
     // decrements the counter in a non-blocking manner
     Lazy<void> count_down(std::size_t update = 1) {
@@ -48,6 +69,8 @@ public:
         count_ -= update;
         if (!count_) {
             cv_.notify();
+            // Release resources when counter reaches zero
+            releaseAllResourcesLocked(lk);
         }
     }
 
@@ -73,9 +96,28 @@ public:
 private:
     using MutexType = SpinLock;
 
+    // Release all resources (must be called with locked mutex)
+    void releaseAllResourcesLocked(MutexType::Lock& lk) {
+        for (auto& resource : resources_) {
+            try {
+                resource();
+            } catch (...) {
+                // Ignore exceptions from resource release
+            }
+        }
+        resources_.clear();
+    }
+
+    // Release all resources (thread-safe)
+    void releaseAllResources() {
+        auto lk = mutex_.lock();
+        releaseAllResourcesLocked(lk);
+    }
+
     mutable MutexType mutex_;
     mutable ConditionVariable<MutexType> cv_;
     std::size_t count_;
+    std::vector<std::function<void()>> resources_;
 };
 
 }  // namespace async_simple::coro

@@ -18,11 +18,14 @@
 
 #ifndef ASYNC_SIMPLE_USE_MODULES
 #include <stdexcept>
+#include <functional>
+#include <string>
 #include "async_simple/CommonMacros.h"
 
 #endif  // ASYNC_SIMPLE_USE_MODULES
 
 namespace async_simple {
+
 // Different from assert, logicAssert is meaningful in
 // release mode. logicAssert should be used in case that
 // we need to make assumption for users.
@@ -34,6 +37,37 @@ inline void logicAssert(bool x, const char* errorMsg) {
         AS_LIKELY { return; }
     throw std::logic_error(errorMsg);
 }
+
+// SafeAccess callback type
+using SafeAccessCallback = std::function<void(const std::string& coroId,
+                                              const std::string& resourceType,
+                                              const std::string& accessLocation,
+                                              const std::string& errorMsg)>;
+
+// Set global SafeAccess callback
+void setSafeAccessCallback(SafeAccessCallback callback);
+
+// Get global SafeAccess callback
+SafeAccessCallback getSafeAccessCallback();
+
+// Get current coroutine ID
+std::string getCurrentCoroutineId();
+
+// SafeAccess macro for production-level resource access protection
+#define AS_SAFE_ACCESS(resource, resourceType, accessLocation) \
+    do { \
+        if (!(resource)) { 
+            std::string coroId = getCurrentCoroutineId(); 
+            std::string errorMsg = std::string("Access to invalid ") + resourceType + " at " + accessLocation; 
+            auto callback = getSafeAccessCallback(); 
+            if (callback) { 
+                callback(coroId, resourceType, accessLocation, errorMsg); 
+            } 
+            // Safe downgrade strategy: try to continue with a default resource if possible 
+            // For now, we'll just throw an exception, but this can be extended 
+            throw std::runtime_error(errorMsg); 
+        } 
+    } while (false)
 
 }  // namespace async_simple
 

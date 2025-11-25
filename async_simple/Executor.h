@@ -97,6 +97,15 @@ public:
     // should guarantee that the func would be executed.
     virtual bool schedule(Func func) = 0;
 
+    // Validate coroutine context before scheduling.
+    // Returns true if the context is valid, false otherwise.
+    // This method can be overridden by derived classes to provide
+    // custom context validation logic.
+    virtual bool validateCoroContext() const {
+        // Default implementation: always valid
+        return true;
+    }
+
     // 4-bits priority, less level is more important. Default
     // value of async-simple schedule is DEFAULT. For scheduling level >=
     // YIELD, if executor always execute the work immediately if other
