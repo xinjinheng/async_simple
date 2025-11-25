@@ -18,6 +18,9 @@
 
 #ifndef ASYNC_SIMPLE_USE_MODULES
 #include <type_traits>
+#include <vector>
+#include <functional>
+#include <mutex>
 #include "async_simple/Future.h"
 #include "async_simple/Promise.h"
 #include "async_simple/uthread/Await.h"
@@ -49,9 +52,28 @@ public:
     Latch(const Latch&) = delete;
     Latch(Latch&&) = delete;
 
-    ~Latch() {}
+    ~Latch() {
+        // Auto release all registered resources when latch is destroyed
+        releaseAllResources();
+    }
 
 public:
+    // Register a resource with a release function
+    template <typename ReleaseFunc>
+    void registerResource(ReleaseFunc&& releaseFunc) {
+        std::lock_guard<std::mutex> lock(_resourcesMutex);
+        _resources.emplace_back(std::forward<ReleaseFunc>(releaseFunc));
+    }
+
+    // Register a file descriptor resource
+    void registerFileDescriptor(int fd) {
+        registerResource([fd]() {
+            if (fd != -1) {
+                ::close(fd);
+            }
+        });
+    }
+
     void downCount(std::size_t n = 1) {
         if (_skip) {
             return;
@@ -59,6 +81,8 @@ public:
         auto lastCount = _count.fetch_sub(n, std::memory_order_acq_rel);
         if (lastCount == 1u) {
             _promise.setValue(true);
+            // Release resources when counter reaches zero
+            releaseAllResources();
         }
     }
     void await(Executor* ex) {
@@ -72,9 +96,25 @@ public:
     }
 
 private:
+    // Release all resources (thread-safe)
+    void releaseAllResources() {
+        std::lock_guard<std::mutex> lock(_resourcesMutex);
+        for (auto& resource : _resources) {
+            try {
+                resource();
+            } catch (...) {
+                // Ignore exceptions from resource release
+            }
+        }
+        _resources.clear();
+    }
+
+private:
     Promise<bool> _promise;
     std::atomic<std::size_t> _count;
     bool _skip;
+    std::mutex _resourcesMutex;
+    std::vector<std::function<void()>> _resources;
 };
 
 }  // namespace uthread

@@ -18,6 +18,9 @@ endif()
 
 
 set(SRCS "")
+list(APPEND SRCS Common.cpp)
+list(APPEND SRCS experimental/CoroExceptionMonitor.cpp)
+list(APPEND SRCS experimental/ExceptionInjection.cpp)
 if(UTHREAD)
   list(APPEND SRCS ${uthread_src})
   list(APPEND SRCS ${uthread_asm_src})

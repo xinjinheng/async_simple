@@ -35,6 +35,7 @@
 #include "async_simple/coro/LazyLocalBase.h"
 #include "async_simple/coro/PromiseAllocator.h"
 #include "async_simple/coro/ViaCoroutine.h"
+#include "async_simple/coro/CoroutineResourceGuard.h"
 #include "async_simple/experimental/coroutine.h"
 
 #endif  // ASYNC_SIMPLE_USE_MODULES
@@ -141,7 +142,15 @@ public:
     };
 
 public:
-    LazyPromiseBase() noexcept : _executor(nullptr), _lazy_local(nullptr) {}
+    LazyPromiseBase() noexcept : _executor(nullptr), _lazy_local(nullptr) {
+        _resourceGuard.setExecutor(_executor);
+        // Generate unique coroutine ID
+        _coroId = getCurrentCoroutineId();
+    }
+
+    const std::string& coroId() const noexcept {
+        return _coroId;
+    }
     // Lazily started, coroutine will not execute until first resume() is called
     std::suspend_always initial_suspend() noexcept { return {}; }
     FinalAwaiter final_suspend() noexcept { return {}; }
@@ -184,6 +193,8 @@ public:
     std::coroutine_handle<> _continuation;
     Executor* _executor;
     LazyLocalBase* _lazy_local;
+    CoroutineResourceGuard _resourceGuard;
+    std::string _coroId;
 };
 
 template <typename T>
