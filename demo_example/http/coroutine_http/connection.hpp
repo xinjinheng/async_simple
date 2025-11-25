@@ -17,9 +17,12 @@
 #define ASYNC_SIMPLE_CONNECTION_HPP
 
 #include <fstream>
+#include <iostream>
 #include "../../asio_coro_util.hpp"
 #include "../http_request.hpp"
 #include "../http_response.hpp"
+#include "../../../async_simple/experimental/NetworkOperationWrapper.h"
+#include "../../../async_simple/experimental/NetworkException.h"
 
 class connection {
 public:
@@ -31,33 +34,53 @@ public:
         socket_.close(ec);
     }
     async_simple::coro::Lazy<void> start() {
-        for (;;) {
-            auto [error, bytes_transferred] =
-                co_await async_read_some(socket_, asio::buffer(read_buf_));
-            if (error) {
-                std::cout << "error: " << error.message()
-                          << ", size=" << bytes_transferred << '\n';
-                break;
-            }
-
-            request_parser::result_type result;
-            std::tie(result, std::ignore) = parser_.parse(
-                request_, read_buf_, read_buf_ + bytes_transferred);
-            if (result == request_parser::good) {
-                handle_request(request_, response_);
-                co_await async_write(socket_, response_.to_buffers());
-                bool keep_alive = is_keep_alive();
-                if (!keep_alive) {
+        try {
+            for (;;) {
+                auto [error, bytes_transferred] = 
+                    co_await async_simple::experimental::async_read_some(socket_, asio::buffer(read_buf_));
+                if (error) {
+                    std::cout << "error: " << error.message()
+                              << ", size=" << bytes_transferred << '\n';
                     break;
                 }
 
-                request_ = {};
-                response_ = {};
-                parser_.reset();
-            } else if (result == request_parser::bad) {
-                response_ = build_response(status_type::bad_request);
-                co_await async_write(socket_, response_.to_buffers());
-                break;
+                request_parser::result_type result;
+                std::tie(result, std::ignore) = parser_.parse(
+                    request_, read_buf_, read_buf_ + bytes_transferred);
+                if (result == request_parser::good) {
+                    handle_request(request_, response_);
+                    co_await async_simple::experimental::async_write(socket_, response_.to_buffers());
+                    bool keep_alive = is_keep_alive();
+                    if (!keep_alive) {
+                        break;
+                    }
+
+                    request_ = {};
+                    response_ = {};
+                    parser_.reset();
+                } else if (result == request_parser::bad) {
+                    response_ = build_response(status_type::bad_request);
+                    co_await async_simple::experimental::async_write(socket_, response_.to_buffers());
+                    break;
+                }
+            }
+        } catch (const async_simple::experimental::NetworkException& e) {
+            std::cout << "Network exception: " << e.what() << '\n';
+            // Send appropriate error response
+            response_ = build_response(status_type::internal_server_error);
+            try {
+                co_await async_simple::experimental::async_write(socket_, response_.to_buffers());
+            } catch (...) {
+                // Ignore errors when sending error response
+            }
+        } catch (const std::exception& e) {
+            std::cout << "Unexpected exception: " << e.what() << '\n';
+            // Send appropriate error response
+            response_ = build_response(status_type::internal_server_error);
+            try {
+                co_await async_simple::experimental::async_write(socket_, response_.to_buffers());
+            } catch (...) {
+                // Ignore errors when sending error response
             }
         }
     }

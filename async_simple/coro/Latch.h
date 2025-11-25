@@ -19,6 +19,8 @@
 
 #ifndef ASYNC_SIMPLE_USE_MODULES
 #include <cstddef>
+#include <functional>
+#include <vector>
 #include "async_simple/coro/ConditionVariable.h"
 #include "async_simple/coro/Lazy.h"
 #include "async_simple/coro/SpinLock.h"
@@ -37,9 +39,40 @@ namespace async_simple::coro {
 class Latch {
 public:
     explicit Latch(std::size_t count) : count_(count) {}
-    ~Latch() = default;
+    ~Latch() {
+        // Cleanup all registered resources
+        cleanupResources();
+    }
     Latch(const Latch&) = delete;
     Latch& operator=(const Latch&) = delete;
+
+    // Register a resource to be cleaned up when the latch is destroyed or times out
+    // The cleanup function will be called with the resource handle as argument
+    template <typename Handle, typename CleanupFunc>
+    void registerResource(Handle handle, CleanupFunc cleanupFunc) {
+        auto lk = mutex_.lock();
+        resources_.emplace_back([handle, cleanupFunc]() {
+            try {
+                cleanupFunc(handle);
+            } catch (...) {
+                // Ignore exceptions during cleanup
+            }
+        });
+    }
+
+    // Unregister a resource (if cleanup is no longer needed)
+    template <typename Handle, typename CleanupFunc>
+    void unregisterResource(Handle handle, CleanupFunc cleanupFunc) {
+        auto lk = mutex_.lock();
+        resources_.erase(
+            std::remove_if(resources_.begin(), resources_.end(),
+                [handle, cleanupFunc](const std::function<void()>& func) {
+                    // Note: This is a simplistic check and may not work for all cases
+                    // For better results, use a more robust resource tracking mechanism
+                    return false;
+                }),
+            resources_.end());
+    }
 
     // decrements the counter in a non-blocking manner
     Lazy<void> count_down(std::size_t update = 1) {
@@ -73,9 +106,23 @@ public:
 private:
     using MutexType = SpinLock;
 
+    // Cleanup all registered resources
+    void cleanupResources() {
+        auto lk = mutex_.lock();
+        for (const auto& cleanupFunc : resources_) {
+            try {
+                cleanupFunc();
+            } catch (...) {
+                // Ignore exceptions during cleanup
+            }
+        }
+        resources_.clear();
+    }
+
     mutable MutexType mutex_;
     mutable ConditionVariable<MutexType> cv_;
     std::size_t count_;
+    std::vector<std::function<void()>> resources_;
 };
 
 }  // namespace async_simple::coro

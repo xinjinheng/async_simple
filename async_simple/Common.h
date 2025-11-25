@@ -18,6 +18,8 @@
 
 #ifndef ASYNC_SIMPLE_USE_MODULES
 #include <stdexcept>
+#include <functional>
+#include <string>
 #include "async_simple/CommonMacros.h"
 
 #endif  // ASYNC_SIMPLE_USE_MODULES
@@ -34,6 +36,44 @@ inline void logicAssert(bool x, const char* errorMsg) {
         AS_LIKELY { return; }
     throw std::logic_error(errorMsg);
 }
+
+// SafeAccess macro for production environment
+// It checks the validity of the resource before access
+// and triggers a configurable callback if the resource is invalid
+using SafeAccessCallback = std::function<void(const std::string& resourceType,
+                                               const std::string& accessLocation,
+                                               const std::string& errorMsg)>;
+
+inline SafeAccessCallback& getSafeAccessCallback() {
+    static SafeAccessCallback callback;
+    return callback;
+}
+
+inline void setSafeAccessCallback(SafeAccessCallback cb) {
+    getSafeAccessCallback() = std::move(cb);
+}
+
+inline bool safeAccessCheck(bool valid, const char* resourceType,
+                            const char* accessLocation, const char* errorMsg) {
+    if (valid)
+        AS_LIKELY { return true; }
+    
+    auto& callback = getSafeAccessCallback();
+    if (callback) {
+        callback(resourceType, accessLocation, errorMsg);
+    }
+    return false;
+}
+
+#define SAFE_ACCESS(resource, resourceType, accessLocation, errorMsg) \
+    if (!async_simple::safeAccessCheck(static_cast<bool>(resource), \
+                                       resourceType, accessLocation, errorMsg)) \
+        return
+
+#define SAFE_ACCESS_WITH_DEFAULT(resource, resourceType, accessLocation, errorMsg, defaultValue) \
+    if (!async_simple::safeAccessCheck(static_cast<bool>(resource), \
+                                       resourceType, accessLocation, errorMsg)) \
+        return defaultValue
 
 }  // namespace async_simple
 
