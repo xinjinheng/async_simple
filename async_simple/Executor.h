@@ -147,6 +147,12 @@ public:
                          [[maybe_unused]] ScheduleOptions opts) {
         return schedule(std::move(func));
     }
+    // Validate coroutine context before scheduling
+    // Returns true if context is valid, false otherwise
+    virtual bool validateCoroContext(Context ctx) const {
+        return ctx != NULLCTX;
+    }
+
     virtual bool checkin(Func func, Context ctx) {
         static ScheduleOptions opts;
         return checkin(std::move(func), ctx, opts);

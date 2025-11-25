@@ -17,6 +17,8 @@
 #include <thread>
 
 #include "connection.hpp"
+#include "../../../async_simple/experimental/NetworkOperationWrapper.h"
+#include "../../../async_simple/experimental/NetworkException.h"
 
 using asio::ip::tcp;
 
@@ -26,17 +28,25 @@ public:
         : io_context_(io_context), port_(port), executor_(io_context) {}
 
     async_simple::coro::Lazy<void> start() {
-        tcp::acceptor a(io_context_, tcp::endpoint(tcp::v4(), port_));
-        for (;;) {
-            tcp::socket socket(io_context_);
-            auto error = co_await async_accept(a, socket);
-            if (error) {
-                std::cout << "Accept failed, error: " << error.message()
-                          << '\n';
-                continue;
+        try {
+            tcp::acceptor a(io_context_, tcp::endpoint(tcp::v4(), port_));
+            for (;;) {
+                tcp::socket socket(io_context_);
+                auto [error, accepted_socket] = co_await async_simple::experimental::async_accept(a);
+                if (error) {
+                    std::cout << "Accept failed, error: " << error.message()
+                              << '\n';
+                    continue;
+                }
+                std::cout << "New client comming.\n";
+                start_one(std::move(accepted_socket)).via(&executor_).detach();
             }
-            std::cout << "New client comming.\n";
-            start_one(std::move(socket)).via(&executor_).detach();
+        } catch (const async_simple::experimental::NetworkException& e) {
+            std::cout << "Network exception in server: " << e.what() << '\n';
+            // Server-level error handling
+        } catch (const std::exception& e) {
+            std::cout << "Unexpected exception in server: " << e.what() << '\n';
+            // Server-level error handling
         }
     }
 
